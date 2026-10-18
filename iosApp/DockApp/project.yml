@@ -1,0 +1,57 @@
+# XcodeGen spec. The .xcodeproj is generated, not committed -- a hand-edited
+# pbxproj is unreviewable and merge-hostile. Regenerate with:
+#   cd app/iosApp && xcodegen generate
+name: DockApp
+options:
+  bundleIdPrefix: box.dock
+  deploymentTarget:
+    iOS: "17.0"
+
+targets:
+  DockApp:
+    type: application
+    platform: iOS
+    sources: [Sources]
+
+    # Signing is per-developer, so it lives in a gitignored xcconfig rather
+    # than in this file or the generated project. Copy Local.xcconfig.example
+    # to Local.xcconfig and put your Team ID in it.
+    configFiles:
+      Debug: Local.xcconfig
+      Release: Local.xcconfig
+
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: Dock
+        UILaunchScreen: {}
+        # The dock speaks plain HTTP on a local network; requests are signed
+        # rather than encrypted. Without this, ATS blocks them outright --
+        # the same class of obstacle as Safari's HTTPS-Only.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        # iOS 14+ requires explicit consent to touch the local network.
+        NSLocalNetworkUsageDescription: >-
+          Dock needs your local network to reach the drone-in-a-box
+          controller at 192.168.4.1 or dock.local.
+
+    preBuildScripts:
+      # Builds the correct framework slice for whatever Xcode is targeting --
+      # device or simulator, Debug or Release -- from its own environment
+      # variables. Hardcoding a path to one slice links a simulator binary
+      # into a device build, which fails at link time with
+      # "built for 'iOS-simulator'".
+      - name: Build DockKit framework
+        script: |
+          cd "$SRCROOT/.."
+          ./gradlew :client:embedAndSignAppleFrameworkForXcode
+        basedOnDependencyAnalysis: false
+
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: box.dock.app
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_VERSION: "5.0"
+        FRAMEWORK_SEARCH_PATHS:
+          - $(SRCROOT)/../client/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)
+        OTHER_LDFLAGS: [-framework, DockKit]

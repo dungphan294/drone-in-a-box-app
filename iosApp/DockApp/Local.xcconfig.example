@@ -1,0 +1,10 @@
+// Copy to Local.xcconfig and fill in your Apple Developer Team ID.
+//
+// Find it in Xcode: Settings → Accounts → your Apple ID → the team row, or at
+// developer.apple.com → Membership. A free Apple ID works for running on your
+// own device; its certificates expire every 7 days.
+//
+// Local.xcconfig is gitignored: a Team ID is account-specific and does not
+// belong in a shared repository.
+DEVELOPMENT_TEAM = YOUR_TEAM_ID
+CODE_SIGN_STYLE = Automatic
