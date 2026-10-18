@@ -38,5 +38,10 @@ kotlin {
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1")
         }
         iosMain.dependencies { implementation("io.ktor:ktor-client-darwin:$ktor") }
+        commonTest.dependencies {
+            implementation(kotlin("test"))
+            implementation(libs.ktor.client.mock)
+            implementation(libs.kotlinx.coroutinesTest)
+        }
     }
 }

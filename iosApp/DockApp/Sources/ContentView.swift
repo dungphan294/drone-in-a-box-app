@@ -3,6 +3,11 @@ import DockKit
 
 /// Diagnostic control screen for the dock.
 ///
+/// The key field may be left blank: the firmware's auth check is compiled out
+/// at the moment (DOCK_REQUIRE_AUTH 0), so the dock ignores the signature
+/// headers and signing buys nothing. Fill it in and requests are signed again,
+/// which is what the dock will want once that flag goes back to 1.
+///
 /// The key is typed in rather than paired over BLE: DockBle has no iOS
 /// implementation yet (task T24). Get it from the dock's serial console with
 /// the 'K' command.
@@ -11,7 +16,8 @@ struct ContentView: View {
     @State private var key = ""
     @State private var client: DockClient?
     @State private var status: DockStatus?
-    @State private var message = "Enter the dock address and key, then Connect."
+    @State private var message = "Enter the dock address and press Connect. "
+        + "The key is only needed once the dock's auth check is switched back on."
     @State private var poller: Task<Void, Never>?
 
     var body: some View {
@@ -26,7 +32,7 @@ struct ContentView: View {
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
 
-                SecureField("device key — 64 hex chars from 'K'", text: $key)
+                SecureField("device key — blank while the dock's auth is off", text: $key)
                     .textFieldStyle(.roundedBorder)
 
                 Button("Connect") { connect() }
@@ -82,7 +88,9 @@ struct ContentView: View {
             let c = try DockClient.companion.fromHexKey(hexKey: key, host: host)
             client = c
             startPolling(c)
-            message = "Connecting…"
+            message = key.trimmingCharacters(in: .whitespaces).isEmpty
+                ? "Connecting unsigned — the dock's auth check is off."
+                : "Connecting with a signed key."
         } catch {
             message = "\(error.localizedDescription)"
         }

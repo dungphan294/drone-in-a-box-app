@@ -51,12 +51,26 @@ class MainActivity : Activity() {
     }
 
     private fun connect() {
+        // Blank is a valid answer. The firmware's auth check is compiled out
+        // for now (DOCK_REQUIRE_AUTH 0), so the dock ignores the signature
+        // headers entirely and a key buys nothing -- refusing to connect
+        // without one only kept the app out of a dock that answers anyone.
+        // Typing a key still signs, so this keeps working when auth returns.
         val key = keyField.text.toString().trim()
-        if (key.length != 64) {
-            eventView.text = "Key must be 64 hex characters. Press 'K' on the dock's serial console."
+        if (key.isNotEmpty() && (key.length != 64 || !key.all { it.isDigit() || it in 'a'..'f' || it in 'A'..'F' })) {
+            eventView.text = "A key must be 64 hex characters -- press 'K' on the dock's serial " +
+                "console. Leave it blank to connect unsigned."
             return
         }
-        client = DockClient(key.hexToBytes(), hostField.text.toString().trim())
+        client = DockClient(
+            if (key.isEmpty()) null else key.hexToBytes(),
+            hostField.text.toString().trim(),
+        )
+        eventView.text = if (key.isEmpty()) {
+            "Connecting unsigned -- the dock's auth check is off."
+        } else {
+            "Connecting with a signed key."
+        }
 
         poller?.cancel()
         poller = scope.launch {
@@ -66,7 +80,13 @@ class MainActivity : Activity() {
                 try {
                     render(client!!.status())
                 } catch (e: DockUnauthorized) {
-                    eventView.text = "Refused: ${e.message}. Wrong key, or the dock was erased."
+                    eventView.text = if (keyField.text.toString().isBlank()) {
+                        "Dock requires a signed request. Enter the key from 'K' and reconnect."
+                    } else {
+                        "Refused: ${e.message}. Wrong key, or the dock was erased."
+                    }
+                } catch (e: DockRefused) {
+                    eventView.text = "Dock refused: ${e.body}"
                 } catch (e: Exception) {
                     eventView.text = "No contact: ${e.message ?: e::class.simpleName}"
                     levelView.text = "—"
@@ -110,10 +130,10 @@ class MainActivity : Activity() {
         }
 
         root.addView(label("Dock", 26f, Color.WHITE))
-        root.addView(label("signed control · diagnostic build", 13f, GREY))
+        root.addView(label("diagnostic build", 13f, GREY))
 
         hostField = field("192.168.4.1")
-        keyField = field("device key — 64 hex chars from 'K'").apply {
+        keyField = field("device key — blank while the dock's auth is off").apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
         root.addView(hostField)
@@ -132,7 +152,10 @@ class MainActivity : Activity() {
         root.addView(label("SPEED", 11f, GREY))
         root.addView(row("50%" to '5', "70%" to '7', "90%" to '9', "100%" to '0'))
 
-        eventView = label("Enter the dock address and key, then Connect.", 13f, GREY)
+        eventView = label(
+            "Enter the dock address and press Connect. The key is only needed once " +
+                "the dock's auth check is switched back on.", 13f, GREY,
+        )
         root.addView(eventView)
 
         return ScrollView(this).apply {
