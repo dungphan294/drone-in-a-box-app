@@ -4,4 +4,12 @@ html, body {
     margin: 0;
     padding: 0;
     overflow: hidden;
+    background: #0D0E10;
+}
+
+.loading {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    margin: -20px 0 0 -20px;
 }

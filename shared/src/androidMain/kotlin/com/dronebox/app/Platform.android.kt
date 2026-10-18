@@ -1,9 +1,19 @@
 package com.dronebox.app
 
-import android.os.Build
+import android.content.Context
+import android.content.SharedPreferences
 
-class AndroidPlatform : Platform {
-    override val name: String = "Android ${Build.VERSION.SDK_INT}"
+actual fun pageOrigin(): String? = null
+
+private var store: SharedPreferences? = null
+
+/** Called once by the activity, before the UI reads anything. */
+fun initPrefs(context: Context) {
+    store = context.applicationContext.getSharedPreferences("dock", Context.MODE_PRIVATE)
 }
 
-actual fun getPlatform(): Platform = AndroidPlatform()
+actual fun readPref(key: String): String? = store?.getString(key, null)
+
+actual fun writePref(key: String, value: String) {
+    store?.edit()?.putString(key, value)?.apply()
+}

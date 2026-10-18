@@ -1,9 +1,9 @@
 package com.dronebox.app
 
-import platform.UIKit.UIDevice
+import platform.Foundation.NSUserDefaults
 
-class IOSPlatform : Platform {
-    override val name: String = UIDevice.currentDevice.systemName() + " " + UIDevice.currentDevice.systemVersion
-}
+actual fun pageOrigin(): String? = null
 
-actual fun getPlatform(): Platform = IOSPlatform()
+actual fun readPref(key: String): String? = NSUserDefaults.standardUserDefaults.stringForKey(key)
+
+actual fun writePref(key: String, value: String) = NSUserDefaults.standardUserDefaults.setObject(value, forKey = key)

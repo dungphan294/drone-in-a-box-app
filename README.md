@@ -1,48 +1,90 @@
-This is a Kotlin Multiplatform project targeting Android, iOS, Web, Desktop (JVM).
+# Dock remote
 
-* [/iosApp](./iosApp/iosApp) contains an iOS application. Even if you’re sharing your UI with Compose Multiplatform, you
-  need this entry point for your iOS app. This is also where you should add SwiftUI code for your project.
+A remote control for the drone-in-a-box dock, built with Compose Multiplatform.
+One shared UI runs on **Android, iOS, desktop (macOS/Windows/Linux) and the
+web**. It talks to the dock's own webserver
+(`firmware/lift_motor/components/webserver` in drone-in-a-box), the same API
+the board's built-in page uses:
 
-* [/shared](./shared/src) is for code that will be shared across your Compose Multiplatform applications. It contains
-  several subfolders:
-    - [commonMain](./shared/src/commonMain/kotlin) is for code that’s common for all targets.
-    - Other folders are for Kotlin code that will be compiled for only the platform indicated in the folder name. For
-      example, if you want to use Apple’s CoreCrypto for the iOS part of your Kotlin app,
-      the [iosMain](./shared/src/iosMain/kotlin) folder would be the right place for such calls. Similarly, if you want
-      to edit the Desktop (JVM) specific part, the [jvmMain](./shared/src/jvmMain/kotlin)
-      folder is the appropriate location.
+| Endpoint | Used for |
+| --- | --- |
+| `GET /api/status` | polled every 400 ms. **This poll is the dead-man switch.** |
+| `POST /api/cmd?c=X` | Home `h`, Top `t`, Step `+`/`-`, Extend `e`, Retract `r`, STOP `s`, speed `5 7 9 0`, decay `d` |
+| `GET /api/net` | where the dock is on the network |
+| `GET /api/scan`, `POST /api/wifi` | find and join a hotspot, from Settings |
+| `GET /api/pair`, `GET /api/nonce` | the device key and signing, for when the dock's auth check is back on |
 
-### Running the apps
+## Screens
 
-Use the run configurations provided by the run widget in your IDE's toolbar. You can also use these commands and
-options:
+* **Control**: the lift gauge, Position (Home, Step, Top), Speed, Activity, and
+  Retract / STOP / Extend pinned to the bottom on phones.
+* **Settings** (gear, top right): connection details and Disconnect, Dock Wi-Fi
+  (scan and join), motor readings with the decay toggle, and Appearance
+  (System, Light or Dark, remembered between launches). STOP stays pinned here
+  too, and the dead-man poll keeps running while Settings is open.
 
-- Android app: `./gradlew :androidApp:assembleDebug`
-- Desktop app:
-    - Hot reload: `./gradlew :desktopApp:hotRun --auto`
-    - Standard run: `./gradlew :desktopApp:run`
-- Web app:
-    - Wasm target (faster, modern browsers): `./gradlew :webApp:wasmJsBrowserDevelopmentRun`
-    - JS target (slower, supports older browsers): `./gradlew :webApp:jsBrowserDevelopmentRun`
-- iOS app: open the [/iosApp](./iosApp) directory in Xcode and run it from there.
+## Layout
 
-### Running tests
+| Module | What it holds |
+| --- | --- |
+| [`wire`](./wire) | canonical form, HMAC, BLE framing. No dependencies; pinned by shared test vectors |
+| [`client`](./client) | `DockClient`: HTTP to the dock, with a Ktor engine per platform |
+| [`shared`](./shared) | the app: `DockSession` (polling, commands, scan, Wi-Fi join) and the Compose screens |
+| [`androidApp`](./androidApp), [`desktopApp`](./desktopApp), [`webApp`](./webApp), [`iosApp`](./iosApp) | thin entry points that host `App()` |
 
-Use the run button in your IDE's editor gutter, or run tests using Gradle tasks:
+`iosApp/DockApp` is the earlier SwiftUI diagnostic screen over the `DockKit`
+framework. It is kept, but `iosApp/iosApp` is the app that matches the others.
 
-- Android tests: `./gradlew :shared:testAndroidHostTest`
-- Desktop tests: `./gradlew :shared:jvmTest`
-- Web tests:
-    - Wasm target: `./gradlew :shared:wasmJsTest`
-    - JS target: `./gradlew :shared:jsTest`
-- iOS tests: `./gradlew :shared:iosSimulatorArm64Test`
+## Running
 
----
+Join the dock's Wi-Fi (`drone-in-a-box`), or a network the dock has joined.
+The app connects to `192.168.4.1` by default; `dock.local` works when you
+share a network with the dock.
 
-Learn more about [Kotlin Multiplatform](https://www.jetbrains.com/help/kotlin-multiplatform-dev/get-started.html),
-[Compose Multiplatform](https://kotlinlang.org/compose-multiplatform/),
-[Kotlin/Wasm](https://kotl.in/wasm/)…
+```bash
+./gradlew :androidApp:installDebug
+```
 
-We would appreciate your feedback on Compose/Web and Kotlin/Wasm in the public Slack
-channel [#compose-web](https://slack-chats.kotlinlang.org/c/compose-web). If you face any issues, please report them
-on [YouTrack](https://youtrack.jetbrains.com/newIssue?project=CMP).
+```bash
+./gradlew :desktopApp:run
+```
+
+```bash
+DOCK_URL=http://192.168.4.1 ./gradlew :webApp:wasmJsBrowserDevelopmentRun
+```
+
+iOS: open `iosApp/iosApp.xcodeproj` in Xcode and run the `iosApp` scheme.
+
+### Without the board
+
+`tools/mock_dock.py` copies the firmware's API, its timings and its dead-man,
+using only the Python standard library:
+
+```bash
+python3 tools/mock_dock.py
+```
+
+Then point the app at it: `localhost:8000` from desktop or the iOS simulator,
+`10.0.2.2:8000` from the Android emulator. For the browser, run the web app
+with `DOCK_URL=http://localhost:8000`.
+
+## Platform notes
+
+* **Web.** The dock sends no CORS headers, so a browser can only read its
+  answers from the same origin. The dev server proxies `/api` to `DOCK_URL`
+  (see `webApp/webpack.config.d/dock-proxy.js`), and the app defaults to the
+  page's own origin. To use the web app against a dock directly, serve the
+  built bundle from the dock, or add CORS to the firmware.
+* **Android 17.** The app targets SDK 37, so it needs `ACCESS_LOCAL_NETWORK`
+  to reach any LAN address. The app asks for it at launch. Without it, every
+  poll times out silently.
+* **iOS.** `NSAllowsLocalNetworking` lets plain HTTP through ATS. iOS asks
+  for local-network access the first time the app connects.
+* **Backgrounding stops the poll**, and so, by design, the dock stops a
+  running actuator about 1.5 s later.
+
+## Tests
+
+```bash
+./gradlew :wire:allTests :client:jvmTest :shared:jvmTest
+```

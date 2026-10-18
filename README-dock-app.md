@@ -4,11 +4,8 @@ Kotlin Multiplatform client for the drone-in-a-box dock controller. The shared
 module carries the parts that must not drift from the firmware: the canonical
 form, the signature, the nonce handling and the BLE framing.
 
-> **Not compiled.** This module was written without a Gradle toolchain
-> available, so it has never been built or run. Treat it as a reviewed draft:
-> open it in Android Studio, let the sync fix up plugin and dependency
-> versions, then run `commonTest` first — those tests are the fastest way to
-> find anything that did not survive transcription.
+> Builds and runs on Android, iOS, desktop and web. See README.md for how to run
+> each one, and `tools/mock_dock.py` for running without the board.
 
 ## Why the crypto is in `commonMain`
 

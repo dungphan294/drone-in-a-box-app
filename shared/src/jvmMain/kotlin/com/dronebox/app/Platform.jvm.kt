@@ -1,7 +1,11 @@
 package com.dronebox.app
 
-class JVMPlatform : Platform {
-    override val name: String = "Java ${System.getProperty("java.version")}"
-}
+import java.util.prefs.Preferences
 
-actual fun getPlatform(): Platform = JVMPlatform()
+actual fun pageOrigin(): String? = null
+
+private val node: Preferences = Preferences.userRoot().node("com/dronebox/app")
+
+actual fun readPref(key: String): String? = node.get(key, null)
+
+actual fun writePref(key: String, value: String) = node.put(key, value)

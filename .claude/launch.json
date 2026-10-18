@@ -1,0 +1,18 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "mock-dock",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["tools/mock_dock.py", "--port", "8000"],
+      "port": 8000
+    },
+    {
+      "name": "web-wasm",
+      "runtimeExecutable": "./gradlew",
+      "runtimeArgs": [":webApp:wasmJsBrowserDevelopmentRun", "--console=plain"],
+      "env": { "DOCK_URL": "http://localhost:8000" },
+      "port": 8080
+    }
+  ]
+}

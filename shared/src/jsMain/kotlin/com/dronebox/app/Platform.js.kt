@@ -1,14 +1,12 @@
 package com.dronebox.app
 
-import web.navigator.navigator
+actual fun pageOrigin(): String? = js("window.location.origin") as String
 
-class JsPlatform : Platform {
-    private val userAgent = navigator.userAgent
-    private val browserList = listOf("Chrome", "Firefox", "Safari", "Edge")
+// localStorage can be missing or throw (private windows, blocked storage);
+// a preference that is not remembered is fine, a crash is not.
+actual fun readPref(key: String): String? =
+    runCatching { js("window.localStorage.getItem(key)") as String? }.getOrNull()
 
-    override val name: String = userAgent.findAnyOf(browserList, ignoreCase = true)
-        ?.let { (startIndex) -> userAgent.substring(startIndex).substringBefore(" ") }
-        ?: "Unknown"
+actual fun writePref(key: String, value: String) {
+    runCatching { js("window.localStorage.setItem(key, value)") }
 }
-
-actual fun getPlatform(): Platform = JsPlatform()

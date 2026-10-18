@@ -14,6 +14,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
@@ -34,13 +36,50 @@ data class DockStatus(
     val levelKnown: Boolean get() = level >= 0
 }
 
+/** Where the dock is on the network, from GET /api/net. */
+@Serializable
+data class DockNet(
+    val staJoined: Boolean = false,
+    val staIp: String = "",
+    val apSsid: String = "",
+    val pairing: Boolean = false,
+)
+
+/** One access point from GET /api/scan. `ssid` is untrusted text from the air. */
+@Serializable
+data class DockNetwork(
+    val ssid: String,
+    val rssi: Int = 0,
+    val open: Boolean = false,
+    val auth: String = "",
+) {
+    /** Four coarse buckets at the usual phone-style thresholds, as the dock's own page uses. */
+    val bars: Int get() = when {
+        rssi >= -55 -> 4
+        rssi >= -67 -> 3
+        rssi >= -78 -> 2
+        else -> 1
+    }
+}
+
 class DockUnauthorized(message: String) : Exception(message)
 
 /**
  * A non-401 refusal, carrying what the dock said. /api/scan answers 409 while
  * the actuator is moving, for instance, because a scan outlasts the dead-man.
  */
-class DockRefused(val status: Int, val body: String) : Exception("dock returned $status: $body")
+class DockRefused(val status: Int, val body: String) : Exception("dock returned $status: $body") {
+    /**
+     * The dock explains a refusal as {"error","hint"}, and the hint is written
+     * for the operator. Null when the body is not that shape -- a 400 from
+     * httpd_resp_send_err() is plain text, for instance.
+     */
+    val hint: String? get() = field("hint") ?: field("error")
+
+    private fun field(name: String): String? = runCatching {
+        Json.parseToJsonElement(body).jsonObject[name]?.jsonPrimitive?.content
+    }.getOrNull()
+}
 
 /**
  * HTTP client for the dock.
@@ -66,11 +105,47 @@ class DockClient(
     private val key: ByteArray? = null,
     host: String = "dock.local",
     engine: HttpClientEngine? = null,
+    /**
+     * Send every request here instead, naming the dock in [TARGET_HEADER].
+     *
+     * For the browser: the dock sends no CORS headers, so a page may only
+     * read answers from its own origin. The dev server forwards /api to the
+     * dock the header names -- see webApp/webpack.config.d/dock-proxy.js. Path
+     * and query are unchanged, so a signature still covers exactly what the
+     * dock receives.
+     */
+    proxy: String? = null,
 ) {
-    private val base = "http://$host"
+    private val dock = baseUrl(host)
+    private val base = proxy?.let(::baseUrl) ?: dock
+    private val viaProxy = proxy != null
     private var nonce: Long = 0
 
     companion object {
+        /** Names the real dock when requests go through a proxy. */
+        const val TARGET_HEADER = "X-Dock-Target"
+
+        /**
+         * How long one status poll may take. Under the dock's 1.5 s dead-man on
+         * purpose: with the old 2 s timeout a single slow reply left a gap of
+         * 2.4 s between polls, and the dock stopped a perfectly good move with
+         * "web client stopped responding". Failing fast lets the next poll go.
+         */
+        const val POLL_TIMEOUT_MS = 1_000L
+
+        /** How long a scan may take: a sweep plus a re-association. */
+        const val SCAN_TIMEOUT_MS = 15_000L
+
+        /**
+         * `host` is usually a bare address -- 192.168.4.1, dock.local,
+         * 10.0.2.2:8000 -- but the browser build passes its page origin, which
+         * already carries a scheme, so keep one when it is there.
+         */
+        fun baseUrl(host: String): String {
+            val h = host.trim().trimEnd('/')
+            return if ("://" in h) h else "http://$h"
+        }
+
         /**
          * Build a client from the 64-character hex key the dock prints with 'K',
          * or an unsigned one when `hexKey` is blank.
@@ -83,14 +158,22 @@ class DockClient(
         fun fromHexKey(hexKey: String, host: String): DockClient =
             fromHexKey(hexKey, host, null)
 
-        fun fromHexKey(hexKey: String, host: String, engine: HttpClientEngine?): DockClient {
+        fun fromHexKey(hexKey: String, host: String, engine: HttpClientEngine?): DockClient =
+            fromHexKey(hexKey, host, engine, null)
+
+        /** As fromHexKey, through `proxy` when it is not null -- see the constructor. */
+        fun fromHexKeyVia(hexKey: String, host: String, proxy: String?): DockClient =
+            fromHexKey(hexKey, host, null, proxy)
+
+        fun fromHexKey(hexKey: String, host: String, engine: HttpClientEngine?, proxy: String?): DockClient {
             val clean = hexKey.trim()
-            if (clean.isEmpty()) return DockClient(null, host, engine)
+            if (clean.isEmpty()) return DockClient(null, host, engine, proxy)
             require(clean.length == 64) { "device key must be 64 hex characters" }
             return DockClient(
                 ByteArray(32) { clean.substring(it * 2, it * 2 + 2).toInt(16).toByte() },
                 host,
                 engine,
+                proxy,
             )
         }
     }
@@ -99,6 +182,7 @@ class DockClient(
         val configure: HttpClientConfig<*>.() -> Unit = {
             install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
             install(HttpTimeout) { requestTimeoutMillis = 2_000 }
+            if (viaProxy) defaultRequest { header(TARGET_HEADER, dock) }
         }
         // `engine` is for tests, which need to read the headers that actually
         // go out. Production callers leave it null and get the platform engine.
@@ -119,7 +203,50 @@ class DockClient(
 
     @Serializable private data class NonceResponse(val nonce: Long)
 
-    suspend fun status(): DockStatus = request(HttpMethod.Get, "/api/status", "")
+    suspend fun status(): DockStatus = request(HttpMethod.Get, "/api/status", "", POLL_TIMEOUT_MS)
+
+    suspend fun net(): DockNet = request(HttpMethod.Get, "/api/net", "", POLL_TIMEOUT_MS)
+
+    /**
+     * Ask the dock to sweep for networks. Takes several seconds, during which
+     * the dock's radio leaves its own channel -- so expect to lose polls, and
+     * do not call it while the actuator runs: the dock answers 409 then,
+     * because a scan outlasts the dead-man timeout.
+     */
+    suspend fun scan(): List<DockNetwork> =
+        request<ScanResponse>(HttpMethod.Get, "/api/scan", "", SCAN_TIMEOUT_MS).networks
+
+    @Serializable private data class ScanResponse(val networks: List<DockNetwork> = emptyList())
+
+    /**
+     * Have the dock join a network. Credentials ride in the signed query, not
+     * a body, because the signature covers the query and nothing else.
+     */
+    suspend fun joinWifi(ssid: String, password: String) {
+        val query = "ssid=" + ssid.encodeURLParameter() + "&password=" + password.encodeURLParameter()
+        request<OkResponse>(HttpMethod.Post, "/api/wifi", query)
+    }
+
+    @Serializable private data class OkResponse(val ok: Boolean = false)
+
+    /**
+     * Collect the device key during a pairing window, as 64 hex characters.
+     *
+     * Unsigned by design -- the caller has no key yet. The dock only answers
+     * after its BOOT button was pressed, and only to a client on its own
+     * access point; otherwise this throws DockRefused with the dock's hint.
+     */
+    suspend fun pair(): String {
+        val response = http.get("$base/api/pair")
+        if (!response.status.isSuccess()) {
+            throw DockRefused(response.status.value, response.bodyAsText())
+        }
+        return response.body<PairResponse>().key
+    }
+
+    @Serializable private data class PairResponse(val key: String)
+
+    fun close() = http.close()
 
     suspend fun send(command: Char): DockStatus {
         // Sign the query exactly as it goes on the wire: the firmware reads it
@@ -142,7 +269,7 @@ class DockClient(
     }
 
     private suspend inline fun <reified T> request(
-        method: HttpMethod, path: String, query: String,
+        method: HttpMethod, path: String, query: String, timeoutMs: Long? = null,
     ): T {
         // Without a key there is nothing to sign, and the nonce is only ever
         // used to build a signature -- so skip that round trip too.
@@ -159,6 +286,7 @@ class DockClient(
 
         val response = http.request("$base$path" + if (query.isEmpty()) "" else "?$query") {
             this.method = method
+            if (timeoutMs != null) timeout { requestTimeoutMillis = timeoutMs }
             if (sig != null) {
                 header("X-Dock-Nonce", n.toString())
                 header("X-Dock-Sig", sig)

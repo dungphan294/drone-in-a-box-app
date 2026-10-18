@@ -1,7 +1,7 @@
 // HTTP transport. Depends on Ktor, so a version problem here cannot stop
 // :wire:jvmTest from running.
-//
-// Versions are unverified -- let Android Studio's sync correct them.
+import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
+
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidMultiplatformLibrary)
@@ -17,6 +17,13 @@ kotlin {
 
     jvm()
 
+    // The browser build of the app talks to the dock through this client as
+    // well. In a browser the request goes through fetch(), so it is subject to
+    // the same-origin rules -- see webApp/webpack.config.d/dock-proxy.js.
+    js { browser() }
+    @OptIn(ExperimentalWasmDsl::class)
+    wasmJs { browser() }
+
     // One umbrella framework for the iOS app to link. `export` makes wire's
     // types (DockCrypto, DockGatt) visible to Swift as well; without it they
     // are compiled in but not exposed.
@@ -29,15 +36,20 @@ kotlin {
     }
 
     sourceSets {
-        val ktor = "3.3.3"
         commonMain.dependencies {
             api(project(":wire"))   // api, not implementation: required by export()
-            implementation("io.ktor:ktor-client-core:$ktor")
-            implementation("io.ktor:ktor-client-content-negotiation:$ktor")
-            implementation("io.ktor:ktor-serialization-kotlinx-json:$ktor")
-            implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1")
+            implementation(libs.ktor.client.core)
+            implementation(libs.ktor.client.contentNegotiation)
+            implementation(libs.ktor.serialization.json)
+            implementation(libs.kotlinx.coroutinesCore)
         }
-        iosMain.dependencies { implementation("io.ktor:ktor-client-darwin:$ktor") }
+        // Each platform gets its own engine, so `HttpClient {}` with no
+        // explicit engine resolves to the right one everywhere.
+        androidMain.dependencies { implementation(libs.ktor.client.okhttp) }
+        jvmMain.dependencies { implementation(libs.ktor.client.okhttp) }
+        iosMain.dependencies { implementation(libs.ktor.client.darwin) }
+        jsMain.dependencies { implementation(libs.ktor.client.js) }
+        wasmJsMain.dependencies { implementation(libs.ktor.client.js) }
         commonTest.dependencies {
             implementation(kotlin("test"))
             implementation(libs.ktor.client.mock)

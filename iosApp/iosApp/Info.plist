@@ -4,5 +4,15 @@
     <dict>
         <key>CADisableMinimumFrameDurationOnPhone</key>
         <true/>
+        <key>CFBundleDisplayName</key>
+        <string>Dock</string>
+        <key>NSAppTransportSecurity</key>
+        <dict>
+            <!-- The dock speaks plain HTTP on a local network. -->
+            <key>NSAllowsLocalNetworking</key>
+            <true/>
+        </dict>
+        <key>NSLocalNetworkUsageDescription</key>
+        <string>Dock needs your local network to reach the drone-in-a-box controller at 192.168.4.1 or dock.local.</string>
     </dict>
 </plist>

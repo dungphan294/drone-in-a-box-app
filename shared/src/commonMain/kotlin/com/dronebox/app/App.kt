@@ -1,48 +1,62 @@
 package com.dronebox.app
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.safeContentPadding
-import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
-import org.jetbrains.compose.resources.painterResource
 
-import app.shared.generated.resources.Res
-import app.shared.generated.resources.compose_multiplatform
+private const val THEME_KEY = "theme"
 
+/**
+ * The whole app, on every platform: a connect screen, then the remote.
+ *
+ * The key, when there is one, lives only in memory for the session. Storing
+ * it belongs in the platform keystore, never in plain preferences -- see
+ * README-dock-app.md.
+ *
+ * `onDarkTheme` lets a platform match what Compose does not draw itself --
+ * the status bar -- to the theme in use.
+ */
 @Composable
-@Preview
-fun App() {
-    MaterialTheme {
-        var showContent by remember { mutableStateOf(false) }
-        Column(
-            modifier = Modifier
-                .background(MaterialTheme.colorScheme.primaryContainer)
-                .safeContentPadding()
-                .fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Button(onClick = { showContent = !showContent }) {
-                Text("Click me!")
-            }
-            AnimatedVisibility(showContent) {
-                val greeting = remember { Greeting().greet() }
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Image(painterResource(Res.drawable.compose_multiplatform), null)
-                    Text("Compose: $greeting")
+fun App(onDarkTheme: (Boolean) -> Unit = {}) {
+    var themeMode by remember {
+        mutableStateOf(ThemeMode.entries.firstOrNull { it.name == readPref(THEME_KEY) } ?: ThemeMode.System)
+    }
+    val dark = themeMode.isDark()
+    SideEffect { onDarkTheme(dark) }
+
+    DockTheme(dark) {
+        val scope = rememberCoroutineScope()
+        var session by remember { mutableStateOf<DockSession?>(null) }
+        var host by remember { mutableStateOf(pageOrigin() ?: "192.168.4.1") }
+        var key by remember { mutableStateOf("") }
+
+        Surface(color = Dock.Bg, modifier = Modifier.fillMaxSize()) {
+            val current = session
+            if (current == null) {
+                ConnectScreen(host, key) { h, k ->
+                    host = h
+                    key = k
+                    session = DockSession(dockClient(k, h), h, signed = k.isNotEmpty(), parent = scope)
                 }
+            } else {
+                DisposableEffect(current) { onDispose { current.close() } }
+                ControlScreen(
+                    current,
+                    themeMode = themeMode,
+                    onThemeMode = {
+                        themeMode = it
+                        writePref(THEME_KEY, it.name)
+                    },
+                    onDisconnect = { session = null },
+                )
             }
         }
     }
