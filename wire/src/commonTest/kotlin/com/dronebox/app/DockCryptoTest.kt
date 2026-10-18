@@ -1,7 +1,7 @@
-package box.dock
+package com.dronebox.app
 
-import box.dock.DockCrypto.hexToBytes
-import box.dock.DockCrypto.toHex
+import com.dronebox.app.DockCrypto.hexToBytes
+import com.dronebox.app.DockCrypto.toHex
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue

@@ -11,7 +11,7 @@ plugins {
 
 kotlin {
     androidLibrary {
-        namespace = "box.dock.wire"
+        namespace = "com.dronebox.app.wire"
         compileSdk = 37
         minSdk = 26
     }

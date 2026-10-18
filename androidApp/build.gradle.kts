@@ -13,6 +13,12 @@ kotlin {
 dependencies {
     implementation(project(":shared"))
 
+    // The dock control screen lives in this module now.
+    implementation(project(":wire"))
+    implementation(project(":client"))
+    implementation(libs.kotlinx.coroutinesAndroid)
+    implementation(libs.ktor.client.okhttp)
+
     implementation(libs.androidx.activity.compose)
 
     implementation(libs.compose.uiToolingPreview)

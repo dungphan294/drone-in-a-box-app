@@ -1,4 +1,4 @@
-package box.dock
+package com.dronebox.app
 
 /**
  * Request signing: canonical form, SHA-256 and HMAC-SHA256, in pure Kotlin.

@@ -1,4 +1,4 @@
-package box.dock
+package com.dronebox.app
 
 /**
  * BLE transport. Platform BLE APIs differ enough that the transport itself is

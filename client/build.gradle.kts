@@ -10,7 +10,7 @@ plugins {
 
 kotlin {
     androidLibrary {
-        namespace = "box.dock.client"
+        namespace = "com.dronebox.app.client"
         compileSdk = 37
         minSdk = 26
     }
